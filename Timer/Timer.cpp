@@ -13,6 +13,7 @@
 #include <strsafe.h>
 #include <CommCtrl.h>
 #include "resource.h"
+#include <queue>
 #pragma comment(lib, "comctl32.lib")
 #pragma comment( lib, "user32.lib") 
 #pragma comment( lib, "gdi32.lib")
@@ -20,17 +21,35 @@ using namespace std;
 
 #define MAX_LOADSTRING 100
 
+typedef struct newtime
+{
+	int h;
+	int m;
+	int s;
+};
+
 // Global Variables:
 HINSTANCE hInst;								// current instance
 TCHAR szTitle[MAX_LOADSTRING];					// The title bar text
 TCHAR szWindowClass[MAX_LOADSTRING];			// the main window class name
-HWND hDialog;
+HWND hDialog, hDialog1;
 INT_PTR CALLBACK StyleDialogProc(HWND hDialog, UINT uMsg, WPARAM wParam, LPARAM lParam);
-UINT h = 0, m = 0, s = 0;
+UINT h = 0, m = 0, s = 0, h1 = 0, m1 = 0, s1 = 0, hb, mb, sb;
+queue<newtime> List;
 HWND hHeure;
 HWND hMinute;
 HWND hSecond;
-HFONT hFont = CreateFont(300, 0, 0, 0, FW_DONTCARE, FALSE, FALSE, FALSE, ANSI_CHARSET,
+HWND hWnd;
+HANDLE hTimer, hStopwatch, hBreak;
+BOOL StopStopwatch = true, StopTimer = true;
+DWORD thrid;
+DWORD WINAPI StartTimer(LPVOID);
+DWORD WINAPI StartStopwatch(LPVOID);
+HFONT hFont = CreateFont(150, 0, 0, 0, FW_DONTCARE, FALSE, FALSE, FALSE, ANSI_CHARSET,
+	OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+	DEFAULT_PITCH | FF_DONTCARE, TEXT("Digital-7"));
+
+HFONT hFont1 = CreateFont(50, 0, 0, 0, FW_DONTCARE, FALSE, FALSE, FALSE, ANSI_CHARSET,
 	OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
 	DEFAULT_PITCH | FF_DONTCARE, TEXT("Digital-7"));
 
@@ -104,6 +123,8 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 	wcex.lpszClassName	= szWindowClass;
 	wcex.hIconSm		= LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
+	
+
 	return RegisterClassEx(&wcex);
 }
 
@@ -119,7 +140,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-   HWND hWnd;
+  
 
    hInst = hInstance; // Store instance handle in our global variable
 
@@ -160,26 +181,33 @@ int GetTextSize(LPTSTR a0)
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	int wmId, wmEvent;
+	MSG msg;
 	PAINTSTRUCT ps;
 	HDC hdc;
-	TCHAR time[20];
+	TCHAR time[20], time1[20], timebreak[20];
+	queue<newtime> ListTemp = List;
+	int i;
 	switch (message)
 	{
 	case WM_PAINT:
 		hdc = BeginPaint(hWnd, &ps);
 		SelectObject(hdc, hFont);
 		_stprintf_s(time, _T("%02d:%02d:%02d"), h, m, s);
-		TextOut(hdc,
-			// Location of the text
-			10,
-			10,
-			// Text to print
-			time,
-			// Size of the text, my function gets this for us
-			GetTextSize(time));
+		_stprintf_s(time1, _T("%02d:%02d:%02d"), h1, m1, s1);
+		TextOut(hdc, 10, 10, time, GetTextSize(time));
+		TextOut(hdc, 10, 150, time1, GetTextSize(time1));
+		SelectObject(hdc, hFont1);
+		i = 170;
+		while (!ListTemp.empty())
+		{
+			_stprintf_s(timebreak, _T("%02d:%02d:%02d"), ListTemp.front().h, ListTemp.front().m, ListTemp.front().s);
+			ListTemp.pop();
+			TextOut(hdc, 550, i, timebreak, GetTextSize(timebreak));
+			i += 50;
+		}
 		EndPaint(hWnd, &ps);
 		break;
-	case WM_TIMER:
+	/*case WM_TIMER:
 
 		switch (wParam)
 		{
@@ -210,7 +238,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			InvalidateRect(hWnd, NULL, TRUE);
 			break;
-		}
+		}*/
 	case WM_COMMAND:
 		wmId    = LOWORD(wParam);
 		wmEvent = HIWORD(wParam);
@@ -233,8 +261,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					(DLGPROC)StyleDialogProc);
 				ShowWindow(hDialog, SW_SHOW);
 			}
-
-			MSG msg;
+			
 			while (GetMessage(&msg, NULL, 0, 0))
 			{
 				TranslateMessage(&msg);
@@ -244,24 +271,46 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			break;
 		case ID_FILE_RESET:
 			h = m = s = 0;
-			KillTimer(hWnd, IDT_TIMER1);
+			//KillTimer(hWnd, IDT_TIMER1);
+			StopTimer = true;
+			CloseHandle(hTimer);
 			InvalidateRect(hWnd, NULL, TRUE);
 			break;
 		case ID_FILE_STOP:
-			KillTimer(hWnd, IDT_TIMER1);
+			//KillTimer(hWnd, IDT_TIMER1);
+			StopTimer = true;
 			break;
 		case ID_FILE_START:
-			SetTimer(hWnd,            
-				IDT_TIMER1,          
-				1000,                
-				(TIMERPROC)NULL);     
+			StopTimer = false;
+			//SetTimer(hWnd, IDT_TIMER1, 1000, (TIMERPROC)NULL);   
+			hTimer = CreateThread(NULL, 0, StartTimer, NULL, 0, &thrid);
+			break;		
+		case ID_STOPWATCH_BREAK:
+			List.push({ h1, m1, s1 });
+			break;
+		case ID_STOPWATCH_RESET:
+			h1 = m1 = s1 = 0;
+			//KillTimer(hWnd, IDT_TIMER1);
+			StopStopwatch = true;
+			CloseHandle(hStopwatch);
+			while (!List.empty())
+				List.pop();
+			InvalidateRect(hWnd, NULL, TRUE);
+			break;
+		case ID_STOPWATCH_STOP:
+			//KillTimer(hWnd, IDT_TIMER1);
+			StopStopwatch = true;
+			break;
+		case ID_STOPWATCH_START:
+			StopStopwatch = false;
+			//SetTimer(hWnd, IDT_TIMER1, 1000, (TIMERPROC)NULL);   
+			hTimer = CreateThread(NULL, 0, StartStopwatch, NULL, 0, &thrid);
 			break;
 		default:
 			return DefWindowProc(hWnd, message, wParam, lParam);
 		}
 		break;
-	case WM_DESTROY:
-		KillTimer(hWnd, IDT_TIMER1);
+	case WM_DESTROY:		
 		PostQuitMessage(0);
 		break;
 	default:
@@ -367,4 +416,62 @@ INT_PTR CALLBACK StyleDialogProc(HWND hDialog, UINT uMsg, WPARAM wParam, LPARAM 
 	}
 
 	return FALSE;
+}
+
+DWORD WINAPI StartStopwatch(LPVOID)
+{
+	while (!StopStopwatch)
+	{
+		Beep(500, 200);
+		// process the 10-second timer 
+		//MessageBox(hWnd, L"WTF", L"WTF", MB_OKCANCEL);
+		s1++;
+		if (s1 == 60)
+		{
+			s1 = 0;
+			m1++;
+			if (m1 == 60)
+			{
+				m1 = 0;
+				h1++;
+			}
+		}
+		InvalidateRect(hWnd, NULL, TRUE);
+		Sleep(800);
+	}
+	return 0;
+}
+
+DWORD WINAPI StartTimer(LPVOID)
+{
+	while (!StopTimer)
+	{
+		if (h == 0 && m == 0 && s == 0)
+		{
+			CloseHandle(hTimer);
+			break;
+		}
+		Beep(750, 200);
+		// process the 10-second timer 
+		//MessageBox(hWnd, L"WTF", L"WTF", MB_OKCANCEL);
+		if (s > 0)
+			s--;
+		else
+		{
+			s = 59;
+			if (m > 0)
+				m--;
+			else
+			{
+				m = 59;
+				if (h > 0)
+					h--;
+				else
+					CloseHandle(hTimer);
+			}
+		}
+		InvalidateRect(hWnd, NULL, TRUE);
+		Sleep(800);
+	}
+	return 0;
 }
